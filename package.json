@@ -1,0 +1,45 @@
+{
+  "name": "monster-nest",
+  "productName": "몬스터 둥지",
+  "version": "1.0.0",
+  "description": "바탕화면에서 포켓몬을 키우는 데스크톱 펫 (개인용 팬게임)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win nsis",
+    "build:win-portable": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.monsternest.desktop",
+    "productName": "MonsterNest",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "assets/**"
+    ],
+    "win": {
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "artifactName": "MonsterNest-Setup-${version}.exe",
+      "shortcutName": "몬스터 둥지"
+    },
+    "portable": {
+      "artifactName": "MonsterNest-${version}-portable.exe"
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.games"
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
+  }
+}
