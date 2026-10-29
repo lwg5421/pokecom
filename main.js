@@ -165,7 +165,6 @@ function settingItems() {
     { label: '항상 다른 창 위에 표시', type: 'checkbox', checked: settings.alwaysOnTop, click: m => setAlwaysOnTop(m.checked) },
     { label: '컴퓨터 켤 때 자동 실행', type: 'checkbox', checked: getAutoStart(), click: m => { setAutoStart(m.checked); rebuildTray(); } },
     { label: '배고플 때 알림 받기', type: 'checkbox', checked: st.notify !== false, click: m => send(m.checked ? 'notify:on' : 'notify:off') },
-    { label: '원작 도트로 보기', type: 'checkbox', checked: st.official !== false, click: m => send(m.checked ? 'official:on' : 'official:off') },
     {
       label: '크기',
       submenu: [

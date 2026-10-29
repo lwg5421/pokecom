@@ -1,11 +1,8 @@
 'use strict';
-/* 도트 엔진 — art.js의 설계도를 48×48 픽셀로 찍어 낸다.
-   1) 몸통 레이어를 작은 캔버스에 그려 팔레트 색으로만 칠하고
-   2) 위쪽은 밝게, 아래·오른쪽은 어둡게 한 칸씩 명암을 넣고
-   3) 바깥에 같은 계열의 진한 색으로 1픽셀 외곽선을 두른 뒤
-   4) 눈·입·볼은 픽셀 단위로 직접 찍는다. */
+/* 도트 엔진 — 알 · 아이콘 · 기분 표시 · 「내 그림」을 도트로 찍어 낸다.
+   포켓몬은 원작 도트(GIF)만 쓴다. */
 const PXN = GRID;
-const INK = [30, 34, 51, 255], WHITE = [255, 255, 255, 255], TONGUE = [255, 120, 140, 255];
+const WHITE = [255, 255, 255, 255];
 function hexRGB(h) {
   let s = h.slice(1); if (s.length === 3) s = s.split('').map(c => c + c).join('');
   const n = parseInt(s, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255, 255];
@@ -83,67 +80,8 @@ function dropShadow(g, cy, hw, C = g.w / 2) {
   }
 }
 
-/* ---------- 포켓몬 스프라이트 ---------- */
-const SPR_BASE = {}, SPR_URL = {};
+const SPR_URL = {};
 const svgWrap = inner => `<svg viewBox="0 0 ${GRID} ${GRID}">${inner}</svg>`;
-async function buildBase(fid, step) {
-  const sp = SPRITE[fid];
-  const g = await pixelize(svgWrap(sp.svg(step)), PXN, PXN);
-  shadeGrid(g);
-  outlineGrid(g);
-  dropShadow(g, sp.float ? 45 : 44, sp.shadow[1], sp.shadow[0]);
-  SPR_BASE[fid + '|' + step] = g;
-}
-// 표정 찍기: 눈 상자(ew×eh) 왼쪽 위 좌표, 입 기준점, 볼 위치는 SPRITE[fid].face에 있다
-function stampFace(g, f, face) {
-  const set = (x, y, c) => g.set(x, y, c);
-  const ink = INK, w = f.ew, h = f.eh, mid = Math.floor(h / 2);
-  const blush = f.cheek && (f.cheekAlways || face === 'happy' || face === 'sleep');
-  if (blush) for (const [cx, cy] of f.cheeks) for (let i = 0; i < f.cw; i++) for (let j = 0; j < f.ch; j++) set(cx + i, cy + j, hexRGB(f.cheek));
-  f.eyes.forEach(([x, y], idx) => {
-    const left = idx === 0, m = y + mid;
-    const openEye = () => {
-      for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) set(x + i, y + j, f.iris && j > 0 ? hexRGB(f.iris) : ink);
-      if (w > 1) set(x, y + (f.iris ? 1 : 0), WHITE);
-    };
-    switch (face) {
-      case 'happy':
-        set(x - 1, m, ink); for (let i = 0; i < w; i++) set(x + i, m - 1, ink); set(x + w, m, ink); break;
-      case 'sleep':
-        set(x - 1, m - 1, ink); for (let i = 0; i < w; i++) set(x + i, m, ink); set(x + w, m - 1, ink); break;
-      case 'hurt': {
-        const cx = x + Math.floor((w - 1) / 2);
-        for (const [dx, dy] of [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]]) set(cx + dx, m + dy, ink);
-        break;
-      }
-      case 'sad':
-        openEye();
-        if (left) { set(x - 1, y - 1, ink); set(x, y - 2, ink); } else { set(x + w, y - 1, ink); set(x + w - 1, y - 2, ink); }
-        break;
-      default: openEye();
-    }
-  });
-  if (f.nose && face !== 'hurt') set(f.nose[0], f.nose[1], [64, 36, 30, 255]);
-  const [mx, my] = f.mouth;
-  const M = {
-    4: { normal: [[-1, 0], [0, 1], [1, 1], [2, 0]], happy: [[-1, 0], [0, 0], [1, 0], [2, 0]], tongue: [[0, 1], [1, 1]], sad: [[-1, 1], [0, 0], [1, 0], [2, 1]], wow: [[0, 0], [1, 0], [0, 1], [1, 1]], sleep: [[0, 0], [1, 0]], hurt: [[-1, 1], [0, 0], [1, 1], [2, 0]] },
-    3: { normal: [[-1, 0], [0, 1], [1, 0]], happy: [[-1, 0], [0, 0], [1, 0]], tongue: [[0, 1]], sad: [[-1, 1], [0, 0], [1, 1]], wow: [[0, 0], [0, 1]], sleep: [[0, 0]], hurt: [[-1, 1], [0, 0], [1, 1]] },
-    wide: { normal: [[-4, 0], [-3, 1], [-2, 1], [-1, 1], [0, 1], [1, 1], [2, 1], [3, 0]], happy: [[-4, 0], [-3, 1], [-2, 2], [-1, 2], [0, 2], [1, 2], [2, 1], [3, 0]], tongue: [], sad: [[-3, 1], [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 1]], wow: [[-1, 0], [0, 0], [-1, 1], [0, 1]], sleep: [[-2, 0], [-1, 0], [0, 0], [1, 0]], hurt: [[-3, 1], [-2, 0], [-1, 1], [0, 0], [1, 1], [2, 0]] }
-  }[f.mw];
-  const key = face === 'normal' || !M[face] ? 'normal' : face;
-  for (const [dx, dy] of M[key]) set(mx + dx, my + dy, ink);
-  if (key === 'happy') for (const [dx, dy] of M.tongue) set(mx + dx, my + dy, TONGUE);
-}
-function spriteURL(fid, face = 'normal', step = 0) {
-  const key = fid + '|' + face + '|' + step;
-  if (SPR_URL[key]) return SPR_URL[key];
-  const base = SPR_BASE[fid + '|' + step] || SPR_BASE[fid + '|0'];
-  if (!base) return '';
-  const g = base.clone();
-  stampFace(g, SPRITE[fid].face, face);
-  return (SPR_URL[key] = g.toURL());
-}
-function spriteHTML(fid, face, step) { return `<img class="mon pix" src="${spriteURL(fid, face, step)}" alt="" draggable="false">`; }
 
 /* ---------- 알 ---------- */
 const EGG_BASE = {};
@@ -189,7 +127,6 @@ async function buildEmotes() {
 }
 async function buildPixelArt() {
   const jobs = [];
-  for (const fid of Object.keys(SPRITE)) for (const step of [0, 1, 2]) jobs.push(buildBase(fid, step));
   for (const sp of Object.keys(LINES)) jobs.push(buildEgg(sp));
   await Promise.all(jobs);
   BUBBLE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#CDEBFF"/><circle cx="9" cy="9" r="2.6" fill="#FFFFFF"/></svg>';

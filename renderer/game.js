@@ -61,17 +61,18 @@ let chatBusy = false;
 
 /* ---------- 원작 도트 (PokeAPI의 블랙·화이트 움직이는 스프라이트) ----------
    앱 안에 넣어 배포하지 않고, 처음 실행할 때 이 PC에서 내려받아 저장해 둔다.
-   인터넷이 안 되면 art.js·pixel.js로 직접 찍은 도트를 쓴다. */
+   아직 못 받았으면(인터넷 없음) 그 포켓몬의 알 그림을 대신 보여 주고, 1분마다 다시 받아 본다. */
 const DEX_ID = { mew: 151, ditto: 132, pichu: 172, pikachu: 25, raichu: 26, eevee: 133, flareon: 136, vaporeon: 134, leafeon: 470, jolteon: 135 };
 const OFF = {};
-const useOfficial = () => S && S.official !== false;
-function offURL(fid, side = 'front') { return (useOfficial() && OFF[fid] && OFF[fid][side]) || ''; }
-function monHTML(fid, face = 'normal', step = 0, side = 'front') {
+function offURL(fid, side = 'front') { return (OFF[fid] && OFF[fid][side]) || ''; }
+function monHTML(fid, side = 'front') {
   const u = offURL(fid, side);
-  return u ? `<img class="mon pix off" src="${u}" alt="" draggable="false"${side === 'back' ? ' data-max="3"' : ''}>` : spriteHTML(fid, face, step);
+  return u ? `<img class="mon pix off" src="${u}" alt="" draggable="false"${side === 'back' ? ' data-max="3"' : ''}>` : eggHTML(FORMS[fid].sp, 0);
 }
+let loadingOff = false;
 async function loadOfficial() {
-  if (!api.sprite) return;
+  if (!api.sprite || loadingOff) return;
+  loadingOff = true;
   const order = Object.keys(DEX_ID).sort((a, b) => (S.pet && S.pet.form === b) - (S.pet && S.pet.form === a));
   for (const fid of order) for (const side of ['front', 'back']) {
     if (OFF[fid] && OFF[fid][side]) continue;
@@ -81,6 +82,7 @@ async function loadOfficial() {
     (OFF[fid] = OFF[fid] || {})[side] = url;
     if (side === 'front' && S.pet && S.pet.form === fid) { petKey = ''; trayKey = ''; }
   }
+  loadingOff = false;
 }
 // 그림의 실제 몸 영역(투명하지 않은 부분)을 찾아 발이 바닥에 닿게 맞춘다
 const BBOX = new Map();
@@ -103,7 +105,7 @@ function layoutPet() {
   if (!img) { hit.style.display = 'none'; return; }
   const apply = () => {
     const bb = bboxOf(img); if (!bb) return;
-    // 도트가 고르게 보이도록 정수배로 키운다: 원작 GIF·직접 찍은 48×48 모두 보통 2배, 크게 3배
+    // 도트가 고르게 보이도록 정수배로 키운다: 원작 GIF는 보통 2배, 크게 3배
     const sc = S.scale === 3 ? 3 : 2;
     const k = img.classList.contains('skin') ? Math.min(sc, 48 * sc / Math.max(bb.nw, bb.nh)) : sc;
     const bw = bb.w * k, bh = bb.h * k;
@@ -125,12 +127,13 @@ function applyScale() {
 const EMOTE = {};
 
 /* ---------- 저장 ---------- */
-const blankSave = () => ({ v: VER, coins: 30, dex: {}, egg: null, pet: null, savedAt: 0, record: { battles: 0, wins: 0 }, tipShown: false, notify: true, lastNotify: {}, posX: null, skin: null, skinId: 0, skinPix: false, official: true, scale: 2, chat: [], aiModel: 'opus' });
+const blankSave = () => ({ v: VER, coins: 30, dex: {}, egg: null, pet: null, savedAt: 0, record: { battles: 0, wins: 0 }, tipShown: false, notify: true, lastNotify: {}, posX: null, skin: null, skinId: 0, skinPix: false, scale: 2, chat: [], aiModel: 'opus' });
 function normalize(d) {
   if (!d || d.v !== VER) return blankSave();
   const s = Object.assign(blankSave(), d);
   if (s.pet && !Array.isArray(s.pet.poopX)) s.pet.poopX = [];
   if (!Array.isArray(s.chat)) s.chat = [];
+  delete s.official; // 예전 버전의 「원작 도트로 보기」 설정 (직접 찍은 도트는 없앴다)
   if (s.aiModel !== 'haiku') s.aiModel = 'opus';
   return s;
 }
@@ -303,25 +306,14 @@ function petFace(p) {
   return 'normal';
 }
 function skinImg() { return `<img class="mon skin${S.skinPix ? ' pix' : ''}" src="${S.skin}" alt="" draggable="false">`; }
-function petArt(face, step = 0, side = 'front') { return S.skin ? skinImg() : monHTML(S.pet.form, face, step, side); }
-function setArt(el, html, src) {
-  const img = el.firstElementChild;
-  if (src && img && img.tagName === 'IMG' && img.classList.contains('pix') && !img.classList.contains('skin') && !img.classList.contains('off')) img.src = src;
-  else el.innerHTML = html;
-}
+function petArt(side = 'front') { return S.skin ? skinImg() : monHTML(S.pet.form, side); }
 function renderPet() {
   const art = $('#petArt'), held = !!(drag && drag.moved);
   let key = '', cls = '';
   if (S.pet) {
     const p = S.pet, f = petFace(p);
-    const step = walking && !held ? (Math.floor(tSec * 6) % 2 ? 1 : 2) : 0;
     const off = !S.skin && offURL(p.form);
-    // 직접 찍은 도트는 가끔 눈을 깜박인다 (원작 도트는 GIF 안에 이미 깜박임이 있다)
-    let fv = f;
-    if (!held && !p.asleep && (f === 'normal' || f === 'happy') && tSec % 3.7 < .14) fv = 'sleep';
-    if (mode === 'doze' && !p.asleep) fv = 'sleep';
-    if ((mode === 'pose' || mode === 'excited') && f !== 'sad') fv = 'happy';
-    key = S.skin ? 'skin' + S.skinId : off ? 'off' + p.form + (p.asleep ? 'z' : '') : p.form + fv + step;
+    key = S.skin ? 'skin' + S.skinId : off ? 'off' + p.form + (p.asleep ? 'z' : '') : 'wait' + p.form;
     if (key !== petKey) {
       petKey = key;
       if (S.skin) art.innerHTML = skinImg();
@@ -329,11 +321,11 @@ function renderPet() {
         const bb = BBOX.get(off);
         art.innerHTML = `<img class="mon pix off" src="${p.asleep && bb && bb.still ? bb.still : off}" alt="" draggable="false">`;
         if (p.asleep && bb && bb.still) BBOX.set(bb.still, bb);
-      } else setArt(art, petArt(fv, step), spriteURL(p.form, fv, step));
+      } else art.innerHTML = petArt();
       layoutPet();
     }
     const modeEmote = chatBusy ? 'think' : mode === 'pose' ? 'love' : mode === 'excited' ? 'happy' : mode === 'look' ? 'q' : mode === 'doze' && !p.asleep ? 'zz' : '';
-    renderEmote(modeEmote || (off || S.skin ? f : 'normal'));
+    renderEmote(modeEmote || f);
     cls = held ? 'held' : p.asleep ? 'sleeping' : mode === 'doze' ? 'doze' : mode === 'pose' ? 'pose' : walking ? 'walking' : 'idle';
   } else if (S.egg) {
     const pr = S.egg.taps / EGG_TAPS;
@@ -448,10 +440,10 @@ function renderAll() { renderPet(); renderPoops(); renderNeeds(); renderHud(); s
 
 /* ---------- 트레이·메뉴 상태 ---------- */
 function menuState() {
-  const p = S.pet, notify = S.notify !== false, official = S.official !== false, scale = S.scale === 3 ? 3 : 2, aiModel = S.aiModel;
-  if (p) return { phase: 'pet', name: p.name, formName: FORMS[p.form].name, level: p.level, asleep: !!p.asleep, locked: locked(), coins: S.coins, foods: FOODS.map(f => ({ id: f.id, name: f.name, price: f.price })), notify, official, scale, aiModel, need: currentNeed() };
-  if (S.egg) return { phase: 'egg', name: S.egg.name, notify, official, scale, aiModel };
-  return { phase: 'none', notify, official, scale, aiModel };
+  const p = S.pet, notify = S.notify !== false, scale = S.scale === 3 ? 3 : 2, aiModel = S.aiModel;
+  if (p) return { phase: 'pet', name: p.name, formName: FORMS[p.form].name, level: p.level, asleep: !!p.asleep, locked: locked(), coins: S.coins, foods: FOODS.map(f => ({ id: f.id, name: f.name, price: f.price })), notify, scale, aiModel, need: currentNeed() };
+  if (S.egg) return { phase: 'egg', name: S.egg.name, notify, scale, aiModel };
+  return { phase: 'none', notify, scale, aiModel };
 }
 function syncState() {
   const st = menuState(), k = JSON.stringify(st);
@@ -474,7 +466,7 @@ function updateTrayIcon() {
     };
     img.src = off; return;
   }
-  drawTray(S.pet ? spriteURL(S.pet.form, 'happy', 0) : eggURL(S.egg ? S.egg.sp : 'pika', 0), 0, 0, 48, 48);
+  drawTray(eggURL(S.pet ? S.pet.sp : S.egg ? S.egg.sp : 'pika', 0), 0, 0, 48, 48);
 }
 function drawTray(src, x, y, w, h) {
   const img = new Image();
@@ -534,7 +526,7 @@ function openStatus() {
   const F = FORMS[p.form], off = p.asleep ? 'disabled' : '';
   const days = Math.floor((Date.now() - (p.born || Date.now())) / 86400000) + 1;
   openPanel(`<button class="x" data-close aria-label="닫기">×</button>
-  <div class="status-top"><div class="status-art">${petArt(petFace(p))}</div>
+  <div class="status-top"><div class="status-art">${petArt()}</div>
   <div class="status-name"><b>${esc(p.name)}</b><span>${F.name} · ${TYPE[F.type]} 타입 · LV ${p.level}</span><div class="coinline" style="margin-top:6px">${COIN}${S.coins} 코인</div></div></div>
   <div class="stats">${statRows(p)}</div>
   <div class="keys">
@@ -830,8 +822,8 @@ function goAdventure() {
   <div class="arena">
     <div class="ground"></div>
     <div class="binfo foe-info"><div class="bname"><b>${esc(f.name)}</b><span>LV ${f.lv}</span></div><div class="btype">${TYPE[f.type]}</div><div class="hp"><i id="foeHp"></i></div></div>
-    <div class="bmon foe" id="foeMon">${monHTML(f.form, 'normal', 0)}</div>
-    <div class="bmon me${!S.skin && offURL(p.form, 'back') ? ' back' : ''}" id="meMon">${petArt(sad ? 'sad' : 'normal', 0, 'back')}</div>
+    <div class="bmon foe" id="foeMon">${monHTML(f.form)}</div>
+    <div class="bmon me${!S.skin && offURL(p.form, 'back') ? ' back' : ''}" id="meMon">${petArt('back')}</div>
     <div class="binfo me-info"><div class="bname"><b>${esc(p.name)}</b><span>LV ${p.level}</span></div><div class="hp"><i id="meHp"></i></div><div class="hpnum" id="meHpNum"></div></div>
   </div>
   <div class="blog" id="bLog" aria-live="polite"></div>
@@ -913,11 +905,10 @@ function endBattle(res) {
   if (res === 'win') {
     const xp = 10 + f.lv * 4, coins = 5 + f.lv * 2;
     S.coins += coins; p.mood = clamp(p.mood + 8); S.record.wins++; pendingXP += xp;
-    const fm = $('#foeMon'); if (fm) { if (!offURL(f.form)) fm.innerHTML = spriteHTML(f.form, 'hurt', 0); fm.classList.add('faint'); }
+    const fm = $('#foeMon'); if (fm) fm.classList.add('faint');
     title = '이겼다!'; body = `경험치 +${xp} · 코인 +${coins} · 기분 +8`;
   } else if (res === 'lose') {
     p.mood = clamp(p.mood - 12); pendingXP += 3;
-    const mm = $('#meMon'); if (mm && !S.skin && !offURL(p.form, 'back')) mm.innerHTML = spriteHTML(p.form, 'hurt', 0);
     title = `${iga(p.name)} 쓰러졌어요…`; body = '푹 쉬게 해 주세요. 기분 -12 · 경험치 +3';
   } else { title = '무사히 돌아왔어요'; body = '다음엔 꼭 이겨 보자!'; }
   const mv = $('#moves');
@@ -947,7 +938,7 @@ function openBranch() {
   api.focus();
   openPanel(`<div class="sheet-head"><h2>${esc(p.name)}의 진화</h2></div>
   <p>LV 12가 되었어요! ${esc(p.name)}의 몸이 빛나고 있어요. 어떤 포켓몬으로 진화할지 골라 주세요. 한 번 고르면 바꿀 수 없어요.</p>
-  <div class="branch">${BRANCH.map(b => `<button data-branch="${b}">${monHTML(b, 'happy', 0)}<b>${FORMS[b].name}</b><small>${TYPE[FORMS[b].type]} 타입 · ${FORMS[b].desc}</small></button>`).join('')}</div>`);
+  <div class="branch">${BRANCH.map(b => `<button data-branch="${b}">${monHTML(b)}<b>${FORMS[b].name}</b><small>${TYPE[FORMS[b].type]} 타입 · ${FORMS[b].desc}</small></button>`).join('')}</div>`);
   syncState();
 }
 function chooseBranch(fid) {
@@ -1022,7 +1013,7 @@ function openDex() {
   let own = 0, seen = 0;
   const cards = DEX_ORDER.map(fid => {
     const v = S.dex[fid]; if (v === 'own') own++; if (v) seen++;
-    return `<div class="dex-card ${v || 'unseen'}">${monHTML(fid, v ? 'happy' : 'normal', 0)}<b>${v ? FORMS[fid].name : '???'}</b><span class="tag">${v ? TYPE[FORMS[fid].type] + ' · ' : ''}${v === 'own' ? '키워 봄' : v === 'seen' ? '만남' : '아직 몰라요'}</span></div>`;
+    return `<div class="dex-card ${v || 'unseen'}">${monHTML(fid)}<b>${v ? FORMS[fid].name : '???'}</b><span class="tag">${v ? TYPE[FORMS[fid].type] + ' · ' : ''}${v === 'own' ? '키워 봄' : v === 'seen' ? '만남' : '아직 몰라요'}</span></div>`;
   });
   openPanel(`<button class="x" data-close aria-label="닫기">×</button>
   <div class="sheet-head"><h2>포켓몬 도감</h2></div>
@@ -1124,7 +1115,6 @@ function onAction(id) {
   if (!S) return;
   if (id === 'summon') { summon(); return; }
   if (id === 'notify:on' || id === 'notify:off') { S.notify = id === 'notify:on'; save(); syncState(); return; }
-  if (id === 'official:on' || id === 'official:off') { S.official = id === 'official:on'; petKey = ''; trayKey = ''; save(); renderAll(); if (S.official) loadOfficial(); return; }
   if (id === 'scale:2' || id === 'scale:3') { S.scale = +id.slice(6); applyScale(); save(); renderAll(); return; }
   if (id === 'aimodel:opus' || id === 'aimodel:haiku') { S.aiModel = id.slice(8); save(); syncState(); if ($('#chatLog')) openChat(); return; }
   if (locked()) { say('지금은 바빠요! 조금만 기다려 주세요', 1600); return; }
@@ -1274,6 +1264,8 @@ async function boot() {
   setMode('idle', 2500);
   setInterval(frame, 33);
   setInterval(tick, 1000);
-  if (useOfficial()) loadOfficial();
+  loadOfficial();
+  // 인터넷이 없어서 못 받은 원작 도트는 1분마다 다시 받아 본다
+  setInterval(() => { if (Object.keys(OFF).length < Object.keys(DEX_ID).length) loadOfficial(); }, 60000);
 }
 boot();
